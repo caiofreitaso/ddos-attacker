@@ -14,7 +14,7 @@ int main(int argc, char const *argv[])
 		else if (!strncmp(argv[i],"--queue=",8))
 			queue = atol(&argv[i][8]);
 		else if (!strncmp(argv[i],"--help",8)) {
-			cout << "Usage: ddos-attacker [options]\n";
+			cout << "usage: ddos-attacker [options]\n\n";
 			cout << "   -q, --queue=QUEUE\tSets the number of simultaneous connections per target.\n";
 			cout << "   -w, --wait=SECONDS\tSets the lifetime of each connection on the queue.\n";
 			return 0;

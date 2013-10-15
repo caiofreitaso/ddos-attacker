@@ -125,7 +125,7 @@ void attack::attack(attack::node& starter) {
 							closing = 0;
 					}
 
-					cout << j << ":" << sockets[j] << "\n";
+					cout << j << ":" << sockets[j] << "\n: ";
 					if (connect(sockets[j], (struct sockaddr*) &address, sizeof(address)) == -1)
 						sockets[j] = -1;
 
@@ -143,7 +143,7 @@ void attack::attack(attack::node& starter) {
 					if (sockets[j] != -1)
 						close(sockets[j]);
 			}
-			cout << "DONE\n";
+			cout << "DONE\n: ";
 		}
 
 		#pragma omp critical
@@ -192,7 +192,7 @@ void attack::get_commands(attack::node& node) {
 	string msg;
 	bool alive = true;
 	while(alive) {
-		cout << "\n:";
+		cout << "\n: ";
 		cin >> input;
 
 		switch(input) {
